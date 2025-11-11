@@ -1,0 +1,62 @@
+﻿name: snyk-ci
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "snyk-demo"]
+
+jobs:
+  snyk-scan:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write  # for SARIF upload (optional)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Snyk auth
+        run: npx snyk auth ${{ secrets.SNYK_TOKEN }}
+
+      - name: Snyk test (gate build)
+        run: npx snyk test --severity-threshold=high --all-projects
+
+      - name: Snyk monitor (snapshot to Snyk)
+        if: always()
+        run: npx snyk monitor --all-projects
+
+      - name: Generate SARIF (Snyk)
+        run: |
+         npx snyk test \
+          --all-projects \
+          --severity-threshold=high \
+          --sarif \
+          --sarif-file-output=./sarif.json \
+          -q || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Verify SARIF exists and is JSON
+        run: |
+         ls -la
+         head -n 3 sarif.json
+         jq -e . sarif.json >/dev/null
+
+      - name: Upload SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sarif.json
+          # eof
+
+
+
